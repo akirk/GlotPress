@@ -125,48 +125,31 @@ function map_glossary_entries_to_translation_originals( $translation, $glossary,
 		$glossary_entries_terms = gp_sort_glossary_entries_terms( $glossary_entries );
 	}
 
-	$glossary_entries_terms_array = array();
-	$glossary_term_reference      = array();
+	$glossary_term_regex_array = explode( '|', implode( '|', $glossary_entries_terms ) );
+	uasort( $glossary_term_regex_array, function( $a, $b ) { return gp_strlen($a) < gp_strlen($b); } );
+	$glossary_term_regex = '/\b' . implode( '\b|\b', $glossary_term_regex_array ) . '\b/i';
 
-	// Since glossary entries terms have been returned as an array of strings, we need to break it up and create back references.
-	foreach ( $glossary_entries_terms as $i => $terms ) {
-		// Split the terms in to an array and make sure they are all lower case for later use.
-		$term_list = explode( '|', $terms );
-		$term_list = array_map( 'strtolower', $term_list );
-
-		foreach ( $term_list as $term ) {
-			// Add the term to the terms array.
-			$glossary_entries_terms_array[] = $term;
-			// Make a back reference to the term's glossary entry.
-			$glossary_term_reference[ $term ][] = $i;
+	foreach ( array( 'singular', 'plural' ) as $entry ) {
+		if ( ! $translation->$entry ) {
+			continue;
 		}
-	}
 
-	// Split the singular string on word boundaries.
-	$singular_split    = preg_split( '/\b/', $translation->singular );
-	$singular_combined = '';
-
-	// Loop through each chunk of the split to find glossary terms.
-	foreach ( $singular_split as $chunk ) {
-		// Create an escaped version for use later on.
-		$escaped_chunk = esc_translation( $chunk );
-
-		// Create a lower case version to compare with the glossary terms.
-		$lower_chunk = strtolower( $chunk );
-
-		// Search the glossary terms for a matching entry.
-		if ( false !== array_search( $lower_chunk, $glossary_entries_terms_array, true ) ) {
+		$translation->{ $entry . '_glossary_markup' } = preg_replace_callback( $glossary_term_regex, function( $m ) use ( $glossary_entries_terms, $glossary_entries, $glossary ) {
 			$glossary_data = array();
 
 			// Add glossary data for each matching entry.
-			foreach ( $glossary_term_reference[ $lower_chunk ] as $glossary_entry_id ) {
+			foreach ( $glossary_entries_terms as $glossary_entry_id => $terms ) {
+				if ( ! preg_match( '/\b' . str_replace( '|', '\b|\b', $terms ) . '\b/i', $m[0] ) ) {
+					continue;
+				}
+
 				// Get the glossary entry based on the back reference we created earlier.
 				$glossary_entry = $glossary_entries[ $glossary_entry_id ];
 
 				// If this is a locale glossary, make a note for the user.
 				$locale_entry = '';
 				if ( $glossary_entry->glossary_id !== $glossary->id ) {
-					/* translators: Denotes an entry from the locale glossary in the tooltip */
+					// translators: Denotes an entry from the locale glossary in the tooltip
 					$locale_entry = _x( 'Locale Glossary', 'Bubble', 'glotpress' );
 				}
 
@@ -179,66 +162,8 @@ function map_glossary_entries_to_translation_originals( $translation, $glossary,
 				);
 			}
 
-			// Add the span and chunk to our output.
-			$singular_combined .= '<span class="glossary-word" data-translations="' . htmlspecialchars( wp_json_encode( $glossary_data ), ENT_QUOTES, 'UTF-8' ) . '">' . $escaped_chunk . '</span>';
-		} else {
-			// No term was found so just add the escaped chunk to the output.
-			$singular_combined .= $escaped_chunk;
-		}
-	}
-
-	// Assign the output to the translation.
-	$translation->singular_glossary_markup = $singular_combined;
-
-	// Add glossary terms to the plural if we have one.
-	if ( $translation->plural ) {
-		// Split the plural string on word boundaries.
-		$plural_split    = preg_split( '/\b/', $translation->plural );
-		$plural_combined = '';
-
-		// Loop through each chunk of the split to find glossary terms.
-		foreach ( $plural_split as $chunk ) {
-			// Create an escaped version for use later on.
-			$escaped_chunk = esc_translation( $chunk );
-
-			// Create a lower case version to compare with the glossary terms.
-			$lower_chunk = strtolower( $chunk );
-
-			// Search the glossary terms for a matching entry.
-			if ( false !== array_search( $lower_chunk, $glossary_entries_terms_array, true ) ) {
-				$glossary_data = array();
-
-				// Add glossary data for each matching entry.
-				foreach ( $glossary_term_reference[ $lower_chunk ] as $glossary_entry_id ) {
-					// Get the glossary entry based on the back reference we created earlier.
-					$glossary_entry = $glossary_entries[ $glossary_entry_id ];
-
-					// If this is a locale glossary, make a note for the user.
-					$locale_entry = '';
-					if ( $glossary_entry->glossary_id !== $glossary->id ) {
-						/* translators: Denotes an entry from the locale glossary in the tooltip */
-						$locale_entry = _x( 'Locale Glossary', 'Bubble', 'glotpress' );
-					}
-
-					// Create the data to be added to the span.
-					$glossary_data[] = array(
-						'translation'  => $glossary_entry->translation,
-						'pos'          => $glossary_entry->part_of_speech,
-						'comment'      => $glossary_entry->comment,
-						'locale_entry' => $locale_entry,
-					);
-				}
-
-				// Add the span and chunk to our output.
-				$plural_combined .= '<span class="glossary-word" data-translations="' . htmlspecialchars( wp_json_encode( $glossary_data ), ENT_QUOTES, 'UTF-8' ) . '">' . $escaped_chunk . '</span>';
-			} else {
-				// No term was found so just add the escaped chunk to the output.
-				$plural_combined .= $escaped_chunk;
-			}
-		}
-
-		// Assign the output to the translation.
-		$translation->plural_glossary_markup = $plural_combined;
+			return '<span class="glossary-word" data-translations="' . htmlspecialchars( wp_json_encode( $glossary_data ), ENT_QUOTES, 'UTF-8' ) . '">' . $m[0] . '</span>';
+		}, $translation->$entry );
 	}
 
 	return $translation;
